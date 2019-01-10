@@ -1,5 +1,6 @@
-from dhcp import BOOTP
 import unittest
+
+from dissectors.dhcp.dhcp import BOOTP
 
 
 class TestBOOTP(unittest.TestCase):

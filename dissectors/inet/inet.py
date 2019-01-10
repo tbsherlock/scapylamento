@@ -1,6 +1,6 @@
 
 import socket
-from chunk import TemplateChunk, EnumPackChunk, ValuePackChunk
+from chunk import HeterogeneousList, EnumPackChunk, ValuePackChunk
 
 
 class IPPackChunk(ValuePackChunk):
@@ -8,24 +8,24 @@ class IPPackChunk(ValuePackChunk):
     def __init__(self, default, **kwargs):
         super(IPPackChunk, self).__init__(default=default, fmt="4s", **kwargs)
 
-    def human2internal(self, humanval):
+    def human2internal(self, human_value):
         """ Convert human readable value to internal (python stored) value """
-        if type(humanval) is str:
+        if type(human_value) is str:
             try:
-                socket.inet_aton(humanval)
+                socket.inet_aton(human_value)
             except socket.error:
                 # x = Net(x)  # TODO: define this in a helper function
                 raise
-        elif type(humanval) is list:
+        elif type(human_value) is list:
             raise Exception("Cannot convert list to IPChunk")
-        self.value = humanval
+        self.value = human_value
 
     def internal2raw(self):
         return socket.inet_aton(self.value)
 
-    def raw2internal(self, rawval):
-        print("ipchunk rawval: %s"%(rawval.encode('hex')))
-        return socket.inet_ntoa(rawval)
+    def raw2internal(self, raw_value):
+        print("ipchunk rawval: %s" % (raw_value.encode('hex')))
+        return socket.inet_ntoa(raw_value)
 
     def internal2human(self):
         return self.value

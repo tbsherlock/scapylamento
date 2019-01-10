@@ -1,3 +1,3 @@
 # scapylamento
 
-Work in progress
+Work in progress, interface liable to change

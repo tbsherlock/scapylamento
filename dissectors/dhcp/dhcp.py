@@ -1,8 +1,6 @@
 
-from chunk import TemplateChunk, EnumPackChunk, ValuePackChunk, ListChunk, BinaryDataChunk
-from inet import IPPackChunk
-import struct
-
+from chunk import HeterogeneousList, EnumPackChunk, ValuePackChunk, ListChunk, BinaryDataChunk
+from dissectors.inet.inet import IPPackChunk
 
 BOOTP_OP_ENUM = {
     1: "BOOTREQUEST",
@@ -84,7 +82,7 @@ BOOTP_OPTIONS_ENUM = {
 }
 
 
-class BOOTP_Option(TemplateChunk):
+class BOOTP_Option(HeterogeneousList):
     name = "BOOTP Option"
     template = [(EnumPackChunk, {"name": "option_type", "enum": BOOTP_OPTIONS_ENUM, "fmt": "B"}),
                 (ValuePackChunk, {"name": "option_length",
@@ -114,7 +112,7 @@ class BOOTP_OptionList(ListChunk):
                 return remaining_data
 
 
-class BOOTP(TemplateChunk):
+class BOOTP(HeterogeneousList):
     name = "BOOTP"
     template = [(EnumPackChunk, {"name": "op", "default": 1, "enum": BOOTP_OP_ENUM, "fmt": "B"}),
                 (ValuePackChunk, {"name": "htype", "default": 1, "fmt": "B"}),

@@ -2,14 +2,14 @@
 TLS (Transport Layer Security) SCAPYLAMENTO defines
 """
 
-from Crypto.PublicKey import RSA, DSA
-from Crypto.Hash import HMAC, SHA, SHA256, SHA384
-from Crypto.Cipher.PKCS1_v1_5 import PKCS115_Cipher
-from Crypto.Cipher import AES, DES3
+#from Crypto.PublicKey import RSA, DSA
+#from Crypto.Hash import HMAC, SHA, SHA256, SHA384
+#from Crypto.Cipher.PKCS1_v1_5 import PKCS115_Cipher
+#from Crypto.Cipher import AES, DES3
 
 # for decoding certificates
-from Crypto.Util.asn1 import DerSequence
-from Crypto.PublicKey import RSA
+#from Crypto.Util.asn1 import DerSequence
+#from Crypto.PublicKey import RSA
 from binascii import a2b_base64
 
 
@@ -390,7 +390,7 @@ CIPHER_SUITE = {'\x00\x00': 'TLS_NULL_WITH_NULL_NULL',
                 # \xFE,\xFE-FF	Reserved to avoid conflicts with widely deployed implementations		[Pasi_Eronen]
                 # \xFF,\x00-FF	Reserved for Private Use		[RFC5246]
                 '\x00\xff': 'TLS_EMPTY_RENEGOTIATION_INFO_SCSV' }
-
+"""
 CIPHER_SUITES = [
     {'id': '\x00\x00',
      'name': 'TLS_NULL_WITH_NULL_NULL'},
@@ -1568,6 +1568,7 @@ CIPHER_SUITES = [
     {'id': '\x00\xff',
      'name': 'TLS_EMPTY_RENEGOTIATION_INFO_SCSV'}
 ]
+"""
 
 ALERTDESCRIPTION = {0: 'close_notify',
                     10: 'unexpected_message',
@@ -1644,7 +1645,7 @@ def long2bstr(value):
     elif type(value) == int:
         hstr = hex(value)[2:]
     else:
-        print "unknown type", type(value)
+        print("unknown type", type(value))
         return "\x00"
 
     if (len(hstr) % 2 == 1):
@@ -1659,8 +1660,7 @@ def bstr2long(value):
     # value = value[::-1]
     return int(value.encode('hex'), 16)
 
-
-# TODO better way of doing this?
+"""
 def ciphersuite(value):
     if type(value) == str:
         value = bstr2long(value)
@@ -1722,3 +1722,4 @@ class DiffieHellman(object):
 
     def getKey(self):
         return self.key
+"""

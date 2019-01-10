@@ -5,36 +5,31 @@ TLS (Transport Layer Security) SCAPYLAMENTO
 
 #from chunk import TemplateChunk, EnumPackChunk, ValuePackChunk, CStringChunk, X3ByteIntPackChunk, BinaryDataChunk
 #from chunk import ListChunk
-from streamChunk import *
-from inet import IPPackChunk
-
 import struct
-import socket
-import random
-import time
 
-from ssltls_definitions import *
+from dissectors.ssl_tls.ssltls_definitions import *
+from streamChunk import *
 
-from Crypto.PublicKey import RSA, DSA
-from Crypto.Hash import HMAC, SHA256, SHA
-from Crypto.Cipher.PKCS1_v1_5 import PKCS115_Cipher
-from Crypto.Cipher import AES, DES3
+#from Crypto.PublicKey import RSA, DSA
+#from Crypto.Hash import HMAC, SHA256, SHA
+#from Crypto.Cipher.PKCS1_v1_5 import PKCS115_Cipher
+#from Crypto.Cipher import AES, DES3
 
 # for decoding certificates
-from Crypto.Util.asn1 import DerSequence
-from Crypto.PublicKey import RSA
-from binascii import a2b_base64
+#from Crypto.Util.asn1 import DerSequence
+#from Crypto.PublicKey import RSA
+#from binascii import a2b_base64
 
 
 def guesspayload(*args, **kwargs):
     """ a guess content_typeFD Saf/DSA??? """
     print("guesspayload %s" % (kwargs))
     parent = kwargs['parent']
-    rawdata = kwargs['rawdata']
+    raw_data = kwargs['raw_data']
     print("guess based on content type: %s" % parent.content_type)
 
     if parent.content_type.value == 22:
-        handshake_type = struct.unpack('h', rawdata[:2])[0]
+        handshake_type = struct.unpack('h', raw_data[:2])[0]
         if handshake_type == 1:
             print("guess based on handshake_type: %s" % handshake_type)
             print("return cluienthello")
@@ -48,7 +43,7 @@ def guesspayload(*args, **kwargs):
     #self.length_fmt = length_fmt
 
 
-class TLSPacket(TemplateChunk):
+class TLSPacket(HeterogeneousList):
     """ The header portion of a SSL/TLS packet """
     name = "TLS Packet"
     template = [(EnumPackChunk, {"name": "content_type", "default": 0, "enum": CONTENT_TYPE, "fmt": "B"}),
@@ -123,7 +118,7 @@ class Extension(StreamTemplateChunk):
                              "default": 0,
                              "length_of": lambda x: x.parent.data.value,
                              "fmt": ">H"}),
-                (amBinaryDataChunk, {"name": "extension_data",
+                (BinaryDataChunk, {"name": "extension_data",
                                    "default": 0,
                                    "length_from": lambda x: x.parent.extension_len.value }) ]
 

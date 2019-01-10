@@ -1,204 +1,513 @@
-
 import struct
 import copy
+import binascii
+import os
+from helper import hexdump
+
+
+class NULL(object):
+    """ An empty object (rather that None, which is for uninitialised) """
+    pass
 
 
 class Chunk(object):
     """ A chunk of data stuff,
-     raw - this is how the chunk is transmitted or stored in its raw byte form
-     internal - How the data should be stored in its python format
-     human - How this chunk should be manipulated for human interaction """
+     raw - this is how the chunk is transmitted or stored in its raw form; must be a byte string
+     internal - How the data should be stored in its python representation
+     human - How this chunk should be displayed for human interaction; must be a string """
     name = "unnamed"
-    default = None
+    default = ""
 
-    def __init__(self, name=None, conditional_fn=None, rawdata=None, default=None, parent=None, *args, **kwargs):
+    def __init__(self, name=None, default=None, raw_data=None, human_value=None, internal_value=None, parent=None, *args, **kwargs):
         self.parent = parent  # Parent points back to a chunk containing this chunk, or None if it is a root chunk
-        self.value = default  # The value stored in this chunk
-        self.conditional_fn = conditional_fn  # this should be a function which returns True if this fiels is present
+        self.internal_value = self.default  # The value stored in this chunk
         if name is not None:
             self.name = name  # A string used to identify this chunk
-        if default is not None:
-            self.default = default
+        if raw_data is not None:
+            assert isinstance(raw_data, bytes), "raw_data must be of type 'bytes'; %s" % type(raw_data)
+            self.internal_value = self.raw2internal(raw_data)
+        elif human_value is not None:
+            assert isinstance(human_value, str), "human_value must be of type 'str'; %s" % type(human_value)
+            self.internal_value = self.human2internal(human_value)
+        elif internal_value is not None:
+            self.internal_value = internal_value
+        else:
+            self.initialise_from_default(default)
 
-        if rawdata is not None:
-            self.raw2internal(rawdata)
+    def initialise_from_default(self, some_value):
+        """ Load default values into the chunk """
+        self.internal_value = some_value
 
-    def __len__(self):
-        """ Return the length (in bytes) of this object in raw format """
-        return self.internal2length()
+    #def __repr__(self):
+    #    return self.__class__.__name__ + " - " + str(self.human_value)
 
-    def __repr__(self):
-        return self.__class__.__name__ + " - " + str(self.internal2human())
+    def display_string(self, indent=""):
+        return indent + "%s - %s" % (self.name, self.human_value)
 
-    def human2internal(self, humanval):
-        """ Convert human readable value to internal (python stored) value and store it """
-        self.value = humanval
+    @property
+    def human_value(self):
+        """ Return this chunk as its human readable value """
+        if self.internal_value is None:
+            raise Exception("Cannot interpret as human: internal value not set")
+        return self.internal2human(self.internal_value)
 
-    def internal2human(self):
-        """ Convert internal (python stored) value to human readable value and return it """
-        return str(self.value)
+    @human_value.setter
+    def human_value(self, human_value):
+        """ Set the chunk by its human readable value """
+        assert isinstance(human_value, str), "human_value must be instance of 'str'; %s" % type(human_value)
+        self.internal_value = self.human2internal(human_value)
 
-    def raw2internal(self, rawval):
-        """Convert raw (on the wire) value to internal (python stored) value and store it """
-        return rawval
+    @property
+    def raw_value(self):
+        """ Return this chunk as its raw value """
+        if self.internal_value is None:
+            raise Exception("Cannot interpret as raw: internal value not set")
+        return self.internal2raw(self.internal_value)
 
-    def internal2raw(self):
-        """Convert internal (python stored) value to raw (on the wire) value and return it """
-        return self.value
+    @raw_value.setter
+    def raw_value(self, raw_value):
+        """ Set the internal value by parsing raw value """
+        assert isinstance(raw_value, bytes), "raw_value must be instance of 'bytes'; %s" % type(raw_value)
+        self.internal_value = self.raw2internal(raw_value)
 
-    def validate_raw(self, rawval):
+    @property
+    def raw_length(self):
+        """ return the raw length (in octets) of this chunk """
+        if self.internal_value is None:
+            raise Exception("Cannot interpret raw length: internal value not set")
+        return self.internal2rawlength(self.internal_value)
+
+    """ These should be implemented by sub-classes """
+    def raw2internal(self, raw_value):
+        """ Convert raw value to internal value and return it """
+        return raw_value
+
+    def internal2raw(self, internal_value):
+        """ Convert internal value to raw value and return it """
+        return self.internal_value
+
+    def internal2rawlength(self, internal_value):
+        """ return the length (in octets) of this chunk from its internal format value """
+        return len(internal_value)
+
+    def human2internal(self, human_value):
+        """ Convert human value to internal value and set return it """
+        return human_value
+
+    def internal2human(self, internal_value):
+        """ Convert human readable value to internal value and return it """
+        return internal_value
+
+    def validate_raw(self, raw_value):
         """ Takes raw data and determine if this is valid for this chunk type, returns true if it is valid """
         return True
 
-    def raw2length(self, rawval):
-        """ return the length (bytes) of this chunk from the raw value """
-        return len(rawval)
+    def read_from_stream(self, stream_data):
+        """ reads this chunk from a stream of data, set internal value, return any unconsumed stream """
+        chunk_len = self.raw_length
+        raw_data = stream_data[:chunk_len]
+        self.internal_value = self.raw2internal(raw_data)
+        remaining_data = stream_data[chunk_len:]
+        return remaining_data
 
-    def internal2length(self):
-        """ return the length (in bytes) in this chunk from the internal value """
-        return len(self.value)
+    #def write_to_stream(self, stream_data):
+    #    """ reads this chunk from a stream of data, return any unconsumed stream """
+    #    return stream_data + self.raw_value
 
-    def initialise_from_default(self):
-        """ Load default values into the chunk """
-        self.value = self.default
+
+class OctetStringChunk(Chunk):
+    """ An Octet string is a series of  Chunk which is always the same length in raw form """
+    def __init__(self, *args, **kwargs):
+        """ raw_length is the length in octets of the raw data chunk """
+        super(OctetStringChunk, self).__init__(*args, **kwargs)
 
     def display_string(self, indent=""):
-        return indent + "%s - %s" % (self.name, self.internal2human())
+        rstr = ""
+        rstr += indent + "%s - " % self.name
+        rstr += hexdump(self.internal_value, indent+"  ")
+        return rstr
+
+    def initialise_from_default(self, some_value):
+        self.internal_value = b"\x11" * self.raw_length
+
+    def raw2internal(self, raw_value):
+        """ both raw and internal value are bytes """
+        assert isinstance(raw_value, bytes), "raw_value must be of type 'bytes'; %s" % type(raw_value)
+        return raw_value
+
+    def internal2raw(self, internal_value):
+        """ both raw and internal value are bytes """
+        assert isinstance(internal_value, bytes), "internal_value must be of type 'bytes'; %s" % type(internal_value)
+        return internal_value
+
+    def internal2rawlength(self, internal_value):
+        """ raw length is hard-coded within the raw_length_value """
+        #assert isinstance(internal_value, bytes), "internal_value must be of type 'bytes'; %s" % type(internal_value)
+        return len(self.internal_value)
+
+    def internal2human(self, internal_value):
+        """ internal value is a byte string, convert it to a hex string for human consumption """
+        return binascii.hexlify(internal_value).decode('utf-8')
+
+    def human2internal(self, human_value):
+        """ human value is a hex character string, convert it to a byte string for internal """
+        return binascii.unhexlify(human_value)
+
+    @property
+    def raw_length(self):
+        """ return the raw length (in octets) of this chunk """
+        return self.internal2rawlength(self.internal_value)
 
 
-class ValuePackChunk(Chunk):
+class ASCIIEncodedDecimal(OctetStringChunk):
+    """ This is a decimal (unsigned integer ish) number with a fixed number of digits, where each digit is represented
+    as a single utf=8 decimal character, and left justified with ascii zeroes up to the length """
+
+    def display_string(self, indent=""):
+        rstr = ""
+        rstr += indent + "%s - %s" % (self.name, self.human_value)
+        return rstr
+
+    def raw2internal(self, raw_value):
+        """ raw value is a byte string, internal value is an unsigned integer """
+        assert isinstance(raw_value, bytes), "raw_value must be of type 'bytes'; %s" % type(raw_value)
+        return int(raw_value)
+
+    def internal2raw(self, internal_value):
+        """ internally stored as an integer, convert to utf-8 and pad with 0x30s """
+        assert isinstance(internal_value, int), "raw_value must be of type 'int'; %s" % type(internal_value)
+        bstr = bytes(str(internal_value))
+        return (b"\x30" * (self.raw_length - len(bstr))) + bstr
+
+    def human2internal(self, human_value):
+        """ human value and internal value are the same """
+        assert int(human_value) >= 0, "human_value must be positive; %s" % human_value
+        return int(human_value)
+
+    def internal2human(self, internal_value):
+        """ Convert human readable value to internal value and return it """
+        return str(internal_value)
+
+    def internal2rawlength(self, internal_value):
+        return len(self.human_value)
+
+    def validate_raw(self, raw_value):
+        """ Takes raw data and determine if this is valid for this chunk type, returns true if it is valid """
+        return True
+
+
+class StaticLengthChunk(Chunk):
+    """ A Chunk which is always the same length in raw form """
+    def __init__(self, raw_length, *args, **kwargs):
+        self.raw_length_value = raw_length
+        super(StaticLengthChunk, self).__init__(*args, **kwargs)
+
+    def internal2rawlength(self, internal_value):
+        """ return the length (in bytes) in this chunk from the internal value """
+        return self.raw_length_value
+
+    def internal2human(self, internal_value):
+        """ Convert human readable value to internal (python stored) value and return it """
+        return binascii.hexlify(internal_value)
+
+
+class ByteStringChunk(Chunk):
+    """ A chunk which is represented as a byte string """
+    def __init__(self, *args, **kwargs):
+        super(ByteStringChunk, self).__init__(*args, **kwargs)
+
+
+class ValuePackChunk(StaticLengthChunk):
     """ A chunk which contains a value specified by a struct format string"""
     default = 0
 
     def __init__(self, fmt, *args, **kwargs):
         self.fmt = fmt  # This is a string containing format characters
-        super(ValuePackChunk, self).__init__(*args, **kwargs)
+        raw_length = struct.calcsize(self.fmt)
+        super(ValuePackChunk, self).__init__(raw_length, *args, **kwargs)
 
-    def internal2raw(self):
-        return struct.pack(self.fmt, self.value)
+    def internal2raw(self, internal_value):
+        return struct.pack(self.fmt, internal_value)
 
-    def raw2internal(self, rawval):
-        print("(%s)unpacking %s now.." % (self.name, str(rawval[:6]).encode('hex')))
-        self.value = struct.unpack(self.fmt, rawval[:self.raw2length(rawval)])[0]
+    def raw2internal(self, raw_value):
+        #print("(%s)unpacking %s now.." % (self.name, str(raw_value[:6]).encode('hex')))
+        return struct.unpack(self.fmt, raw_value[:self.raw_length])[0]
 
-    def raw2length(self, rawval):
-        """ This chunk is always a fixed length """
+    def internal2rawlength(self, internal_value):
+        """ This chunk is always a fixed length, and we can calculate from the fmt string """
         return struct.calcsize(self.fmt)
 
-    def internal2length(self):
-        """ This chunk is always a fixed length """
-        return struct.calcsize(self.fmt)
+    def internal2human(self, internal_value):
+        return str(self.internal_value)
 
-    def internal2human(self):
-        return str(self.value)
+    def human2internal(self, human_value):
+        return int(human_value)
+
+
+class CharChunk(ValuePackChunk):
+    def __init__(self, *args, **kwargs):
+        super(CharChunk, self).__init__(fmt="c", *args, **kwargs)
+
+
+class UShortChunk(ValuePackChunk):
+    def __init__(self, *args, **kwargs):
+        super(UShortChunk, self).__init__("H", *args, **kwargs)
+
+
+class ULongChunk(ValuePackChunk):
+    def __init__(self, *args, **kwargs):
+        super(ULongChunk, self).__init__(">L", *args, **kwargs)
 
 
 class ListChunk(Chunk):
     """ A chunk whereby the internal value is stored as a python list """
     default = []
 
-    def __init__(self, element_type=None, *args, **kwargs):
-        self.element_type = element_type  # The default type of chunk
+    def __init__(self, *args, **kwargs):
         super(ListChunk, self).__init__(*args, **kwargs)
 
     def __getitem__(self, key):
-        return self.value[key]
+        return self.internal_value[key]
+
+    def __getattr__(self, name):
+        """ Overload the getattr function, this allows us to access chunks in the list by name """
+        if self.internal_value is None:
+            raise Exception("(%s) getattr error, name not found: %s" % (self, name))
+        print("internal values: %s" % self.internal_value)
+        for elmnt in self.internal_value:
+            if elmnt.name == name:
+                return elmnt
 
     def __setitem__(self, key, value):
-        self.value[key] = value
+        self.internal_value[key] = value
 
     def __delitem__(self, key):
-        self.value.remove(key)
+        self.internal_value.remove(key)
 
-#    def raw2length(self, rawval):
-#        raise Exception("Unable to calculate length of list")
+    def raw2internal(self, raw_value):
+        raise Exception("Base implementation of ListChunk does not support raw2internal")
 
-    def internal2length(self):
+    def internal2raw(self, internal_value):
+        """ Convert internal (python stored) value to raw (on the wire) value and return it """
+        raw_data = b""
+        for chunk in internal_value:
+            raw_data += chunk.raw_value
+        return raw_data
+
+    def internal2rawlength(self, internal_value):
         """ Calculate the length by iterating over all of the elements of the list and  """
         total_size = 0
-        for elmnt in self.value:
-            total_size += elmnt.internal2length()
+        for elmnt in internal_value:
+            total_size += elmnt.raw_length
         return total_size
 
-    def internal2human(self):
-        return "LIST"
+    def human2internal(self, human_value):
+        raise Exception("Base implementation of ListChunk does not support human2internal")
+
+    def internal2human(self, internal_value):
+        rstr = "%s " % self.name + " [ "
+        for elmnt in internal_value:
+            rstr += elmnt.human_value + ","
+        rstr += " ]"
+        return rstr
 
     def display_string(self, indent=""):
         rstr = indent + "%s " % self.name + " [ "
-        for elmnt in self.value:
+        for elmnt in self.internal_value:
             rstr += "\n" + elmnt.display_string(indent + "  ") + ","
         rstr += "  ]"
         return rstr
 
-    def internal2raw(self):
-        """ Convert internal (python stored) value to raw (on the wire) value """
-        rawdata = ""
-        for chunk in self:
-            rawdata += chunk.internal2raw()
-        return rawdata
-
-    def raw2internal(self, rawdata):
+    '''
+    def raw2internal(self, raw_data):
         """ Convert raw value to internal (python stored) value """
         #if self.length_from is None:
         #    raise Exception("Unable to parse raw list, unable to calculate length")
         if self.element_type is None:
-            raise Exception("Unable to parse raw list, unknown chunk elements")
+            raise Exception("Unable to parse raw list, unknown list elements")
 
-        list_length = self.raw2length(rawdata)  # calculate list length in bytes
-
-        self.value = []
-        print("unpacking a %s length list (%s).." % (list_length, self.name))
+        self.internal_value = []
         chunk_type, chunk_args = self.element_type
-        remaining_data = rawdata[:list_length]
-        while len(remaining_data) > 0:
-            print("raw: %s" % (remaining_data[:16].encode('hex')))
-            new_chunk = chunk_type(**chunk_args)
-            remaining_data = new_chunk.read_from_stream(remaining_data)
-            self.value.append(new_chunk)
 
-        return rawdata[list_length:]
+        # Calculate the number of elements in this list
+        test_chunk = chunk_type(**chunk_args)
+        list_length = self.raw2length(raw_data)  # calculate list length in bytes
+        element_len = test_chunk.raw2length(raw_data)
+        element_count = list_length / element_len
+        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
+
+        for i in range(0,element_count):
+            new_chunk = chunk_type(**chunk_args)
+            new_chunk.raw2internal(raw_data[i*element_len:(i+1)*element_len])
+            self.internal_value.append(new_chunk)
 
     def read_from_stream(self, streamdata):
         datalen = self.raw2length(streamdata)
         print("reading %s bytes" % datalen)
         self.raw2internal(streamdata[:datalen])
         return streamdata[datalen:]
+    '''
 
 
-class TemplateChunk(ListChunk):
+class StaticListChunk(ListChunk, StaticLengthChunk):
+    """ A List chunk (contains other chunks), where the List is always of a known length """
+    def __init__(self, element_type, *args, **kwargs):
+        self.element_type = element_type
+        super(StaticListChunk, self).__init__(*args, **kwargs)
+
+    def raw2internal(self, raw_data):
+        """ Convert raw value to internal (python stored) value """
+        self.internal_value = []
+        chunk_type, chunk_args = self.element_type
+
+        # Calculate the number of elements in this list
+        test_chunk = chunk_type(**chunk_args)
+        list_length = self.raw_length  # calculate list length in bytes
+        element_len = test_chunk.get_raw_length()  # calculate length of one element
+        element_count = list_length / element_len  # calculate number of elements
+        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
+
+        for i in range(0,element_count):
+            new_chunk = chunk_type(**chunk_args)
+            new_chunk.raw2internal(raw_data[i*element_len:(i+1)*element_len])
+            self.internal_value.append(new_chunk)
+
+
+class HomogeneousList(ListChunk):
+    """ A List chunk (contains other chunks), where the elements are the same type """
+    def __init__(self, element_type, element_count, *args, **kwargs):
+        self.element_type = element_type
+        self.element_count = element_count  # This should be a function that returns the number of elements
+        super(HomogeneousList, self).__init__(*args, **kwargs)
+
+    def raw2internal(self, raw_data):
+        """ Convert raw value to internal (python stored) value """
+        chunk_type, chunk_args = self.element_type
+        chunk_args['parent'] = self
+        internal_value = []
+
+        test_chunk = chunk_type(**chunk_args)
+        element_len_bytes = test_chunk.raw_length  # calculate length of one element in bytes
+
+        for elmnt in range(0, self.element_count(self)):
+            new_chunk = chunk_type(**chunk_args)
+            new_chunk.raw_value = raw_data[elmnt * element_len_bytes:(elmnt + 1) * element_len_bytes]
+            internal_value.append(new_chunk)
+
+        return internal_value
+
+        """
+        ####  This code is from a scenario where we do not know the number of elements.
+        self.internal_value = []
+        chunk_type, chunk_args = self.element_type
+
+        # Calculate the number of elements in this list
+        test_chunk = chunk_type(**chunk_args)
+        list_length = self.internal2length(self.internal_value)  # calculate list length in bytes
+        element_len = test_chunk.get_raw_length()  # calculate length of one element
+        element_count = list_length / element_len  # calculate number of elements
+        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
+
+        for i in range(0, element_count):
+            new_chunk = chunk_type(**chunk_args)
+            new_chunk.raw2internal(raw_data[i * element_len:(i + 1) * element_len])
+            self.internal_value.append(new_chunk)
+        """
+
+    def read_from_stream(self, stream_data):
+        chunk_type, chunk_args = self.element_type
+        self.internal_value = []
+
+        test_chunk = chunk_type(**chunk_args)
+        element_len = test_chunk.raw_length  # calculate length of one element
+        list_length = self.internal2rawlength(self.internal_value)  # calculate list length in bytes
+        remaining_data = stream_data
+
+        print("element count was: %s" % self.element_count(self))
+        for elmnt in range(0, self.element_count(self)):
+            new_chunk = chunk_type(**chunk_args)
+            self.internal_value.append(new_chunk)
+            remaining_data = new_chunk.read_from_stream(remaining_data)
+            print("done appended new chunk: %s" % new_chunk)
+
+        return remaining_data
+
+#class StaticTemplateChunk(TemplateChunk, StaticLengthChunk)
+#    """ A List chunk (contains other chunks), where the List is always of a known length """
+#    pass
+
+
+#class VarListChunk(ListChunk, VariableLengthChunk):
+#    """ A List chunk (contains other chunks), where the length is calculated from another field """
+#    def __init__(self, *args, **kwargs):
+#        super(VarListChunk, self).__init__(*args, **kwargs)
+
+
+class HeterogeneousList(ListChunk):
     """ A chunk which contains a known ordered list of other chunks, the known list of chunks is specified in the template member
     This should contain a list of 2-tuples, of which the first element is a chunk type, and the second element is a dictionary containing arguments to that chunk"""
     template = []
-    default = []
 
     def __init__(self, *args, **kwargs):
-        super(TemplateChunk, self).__init__(*args, **kwargs)
+        super(HeterogeneousList, self).__init__(*args, **kwargs)
 
-    def __getattr__(self, name):
-        """ Overload the getattr function, this allows us to access chunks in the list by name"""
-        for elmnt in self.value:
-            if elmnt.name == name:
-                return elmnt
-        return super(TemplateChunk, self).__getitem__(name)
-
-    def raw2internal(self, rawval):
-        """ Convert raw (on the wire) value to internal (python stored) value """
-        rawval_remaining = rawval
-        self.value = []
+    def raw2internal(self, raw_value):
+        self.internal_value = []
+        rawval_remaining = raw_value
 
         for chunk_type, chunk_args in self.template:
             chunk_args['parent'] = self
-            #chunk_args['rawdata'] = rawval_remaining[:]
+            #chunk_args['raw_data'] = rawval_remaining[:]
             try:
                 new_chunk = chunk_type(**chunk_args)
+                self.internal_value.append(new_chunk)
+                rawval_remaining = new_chunk.read_from_stream(rawval_remaining)
+            except Exception as e:
+                print("Failed to initialise a component of templateChunk")
+                print("chunk_type: %s chunk_args: %s" % (chunk_type, chunk_args))
+                raise
+
+    def read_from_stream(self, stream_data):
+        rawval_remaining = stream_data
+        self.internal_value = []
+
+        for chunk_type, chunk_args in self.template:
+            chunk_args['parent'] = self
+            #chunk_args['raw_data'] = rawval_remaining[:]
+            try:
+                new_chunk = chunk_type(**chunk_args)
+                self.internal_value.append(new_chunk)
                 rawval_remaining = new_chunk.read_from_stream(rawval_remaining)
             except Exception as e:
                 print("Failed to initialise a component of templateChunk")
                 print("chunk_type: %s chunk_args: %s"%(chunk_type, chunk_args))
                 raise
-            self.value.append(new_chunk)
 
         return rawval_remaining
+
+
+class EnumDataChunk(OctetStringChunk):
+    """ This chunk must be from a subset of values.
+        acceptable values must be defined in a dictionary, where the key is the
+        field and value is a human readable string """
+    def __init__(self, enum, *args, **kwargs):
+        super(EnumDataChunk, self).__init__(*args, **kwargs)
+        self.enum = enum
+
+    def display_string(self, indent=""):
+        rstr = ""
+        rstr += indent + "%s - %s" % (self.name, self.human_value)
+        return rstr
+
+    def internal2human(self, internal_value):
+        """ Convert internal (python stored) value to human readable value """
+        if internal_value not in self.enum:
+            return "0x" + binascii.hexlify(internal_value) + " - UNKNOWN"
+        return str(self.enum[self.internal_value])
+
+    def human2internal(self, human_value):
+        reverse_lookup = {v: k for k, v in self.enum.items()}
+        return reverse_lookup[human_value]
 
 
 class EnumPackChunk(ValuePackChunk):
@@ -209,169 +518,96 @@ class EnumPackChunk(ValuePackChunk):
         super(EnumPackChunk, self).__init__(*args, **kwargs)
         self.enum = enum
 
-    def internal2human(self):
+    def display_string(self, indent=""):
+        rstr = ""
+        rstr += indent + "%s - %s" % (self.name, self.human_value)
+        return rstr
+
+    def internal2human(self, internal_value):
         """ Convert internal (python stored) value to human readable value """
-        if self.value not in self.enum:
-            return "0x" + str(self.value).encode('hex') + " - UNKNOWN"
-        return str(self.enum[self.value])
+        if self.internal_value not in self.enum:
+            return "0x" + str(internal_value).encode('hex') + " - UNKNOWN"
+        return str(self.enum[self.internal_value])
 
-    """
-        i2s = self.i2s = {}
-        s2i = self.s2i = {}
-        if type(enum) is list:
-            keys = xrange(len(enum))
-        else:
-            keys = enum.keys()
-        if filter(lambda x: type(x) is str, keys):
-            i2s, s2i = s2i, i2s
-        for k in keys:
-            i2s[k] = enum[k]
-            s2i[enum[k]] = k
-        Field.__init__(self, name, default, fmt)
+    def human2internal(self, human_value):
+        reverse_lookup = {v: k for k, v in self.enum.items()}
+        return reverse_lookup[human_value]
 
 
-    def any2i_one(self, pkt, x):
-        if type(x) is str:
-            x = self.s2i[x]
-        return x
-
-    def i2repr_one(self, pkt, x):
-        if self not in conf.noenum and not isinstance(x, VolatileValue) and x in self.i2s:
-            return self.i2s[x]
-        return repr(x)
-
-    def any2i(self, pkt, x):
-        if type(x) is list:
-            return map(lambda z, pkt=pkt: self.any2i_one(pkt, z), x)
-        else:
-            return self.any2i_one(pkt, x)
-
-    def i2repr(self, pkt, x):
-        if type(x) is list:
-            return map(lambda z, pkt=pkt: self.i2repr_one(pkt, z), x)
-        else:
-            return self.i2repr_one(pkt, x)
-    """
-
-
-class VariableLengthChunk(Chunk):
-    """ A chunk which can be various length"""
-    def __init__(self, length_from=None, *args, **kwargs):
-        self.length_from = length_from  # this should be a function which returns the length of this chunk in bytes
-        super(VariableLengthChunk, self).__init__(*args, **kwargs)
-
-    def raw2length(self, rawval):
-        """ use the 'length_from' function to calculate the length """
-        if self.length_from is None:
-            return super(VariableLengthChunk, self).raw2length(rawval)
-        return self.length_from(self)
-
-
-class TerminatedChunk(Chunk):
-    """ This is a chunk which is of variable length and also terminated by a specific byte sequence.
-        terminate_function: err
-    """
-
-    def raw2length(self, rawval):
-        """ read through the stream until we detect the sequence """
-        while True:
-            new_chunk = chunk_type(**chunk_args)
-            remaining_data = new_chunk.read_from_stream(remaining_data)
-            self.value.append(new_chunk)
-            if new_chunk.option_type == 0xff:
-                return remaining_data
-
-
-class LengthOfPackChunk(ValuePackChunk):
-    """ This chunk contains data which is calculated"""
-    def __init__(self, length_of, *args, **kwargs):
-        self.length_of = length_of  # This is a function which returns the value to be stored in this chunk
-        super(LengthOfPackChunk, self).__init__(*args, **kwargs)
-
-    def internal2raw(self):
-        """ We use the function "length_of" to calculate the value """
-        self.value = self.length_of(self)
-
-        return super(LengthOfPackChunk, self).internal2raw()
-
-
-class X3ByteIntPackChunk(ValuePackChunk):
+class X3ByteIntPackChunk(OctetStringChunk):
     """ This field represents a 3 byte long integer, this is a hack to get around the struct module not supporting 3 byte values """
     def __init__(self, *args, **kwargs):
-        super(X3ByteIntPackChunk, self).__init__(fmt=">i", *args, **kwargs)
+        super(X3ByteIntPackChunk, self).__init__(raw_length=3, *args, **kwargs)
 
-    def internal2raw(self):
+    def display_string(self, indent=""):
+        return indent + "%s - %s" % (self.name, self.human_value)
+
+    def internal2raw(self, internal_value):
         """Convert internal (python stored) value to raw (on the wire) value """
-        return struct.pack('>3b', self.value)
+        return struct.pack('>I', internal_value)[1:]
 
-    def raw2internal(self, rawval):
+    def raw2internal(self, raw_value):
         """Convert raw (on the wire) value to internal (python stored) value """
-        self.value = struct.unpack(self.fmt, '\x00' + rawval[:3])[0]
+        return struct.unpack('>I', b'\x00' + raw_value)[0]
 
-    def internal2length(self):
+    def internal2rawlength(self, internal_value):
         """ return the length (in bytes) in this chunk from the internal value """
         return 3
 
-    def raw2length(self, rawdata):
+    def raw2length(self, raw_data):
         """ return the length (in bytes) in this chunk from the internal value """
         return 3
 
+    def internal2human(self, internal_value):
+        """ internal value is a byte string, convert it to a hex string for human consumption """
+        return str(internal_value)
 
-class BinaryDataChunk(VariableLengthChunk):
-    """ A known stream of binary data
-        either of the following should be specified:
-        length - length of stream in bytes
-        length_from - a function which takes a 'BinaryDataChunk' object and returns length """
-    def __init__(self, length=None, *args, **kwargs):
-        self.length = length
-        super(BinaryDataChunk, self).__init__(*args, **kwargs)
-
-    def get_length(self):
-        """ Return the length of this object...?"""
-        if self.length is not None:
-            return self.length
-        if self.length_from is not None:
-            retval = self.length_from(self)
-            if not isinstance(retval, int):
-                raise Exception("length_from function did not return an int: %s"%(retval))
-            return retval
-
-        raise Exception("unable to calculate length")
-
-    def write_to_stream(self, stream):
-        return stream+self.internal2raw()
-
-    def validate_raw(self, rawval):
-        """ if the length of rawdata is less than expected length then not valid """
-        if len(rawval) < self.get_length():
-            return False
-        return True
-
-    def internal2human(self):
-        """ Convert internal (python stored) value to human readable value """
-        return str(self.value).encode('hex')
-
-    def raw2internal(self, rawval):
-        """ Convert raw value to internal value"""
-        self.value = rawval[:self.get_length()]
-
-    def raw_length(self):
-        """ Convert internal value to a length usable by a FieldLenField """
-        return self.get_length()
-
-    def read_from_stream(self, streamdata):
-        print("XXXX?????",streamdata[:8].encode('hex'), self.get_length())
-        print("(%s)unpacking %s now.."%(self.name, str(streamdata[:self.get_length()]).encode('hex')))
-        if self.validate_raw(streamdata) is False:
-            raise Exception("Failed decoding BinaryDataChunk:%s.(len:%s)" % (streamdata[:16].encode('hex'),self.get_length()))
-
-        self.raw2internal(streamdata)
-        return streamdata[self.raw_length():]
+    def human2internal(self, human_value):
+        """ human value is a hex character string, convert it to a byte string for internal """
+        return int(human_value, 10)
 
 
 class CStringChunk(Chunk):
-    """ Null terminated string """
+    """ Null terminated string, read bytes until terminator string """
     default = ""
 
     def __init__(self, *args, **kwargs):
         super(CStringChunk, self).__init__(*args, **kwargs)
+        self.read_from_stream(kwargs['raw_data'])
+
+    #def internal2rawlength(self, internal_value):
+    #    """ The length of the string + the 1 byte null terminator """
+    #    return len(internal_value) + 1
+
+    def raw2internal(self, raw_value):
+        """ Convert raw value to internal value and return it """
+        return raw_value[:-1]
+
+    def internal2raw(self, internal_value):
+        """ Convert internal value to raw value and return it """
+        return self.internal_value + b"\x00"
+
+    def internal2rawlength(self, internal_value):
+        """ return the length (in octets) of this chunk from its internal format value """
+        return len(internal_value) + 1
+
+    def human2internal(self, human_value):
+        """ Convert human value to internal value and set return it """
+        return human_value.encode('utf-8')
+
+    def internal2human(self, internal_value):
+        """ Convert human readable value to internal value and return it """
+        return internal_value.decode('utf-8')
+
+    def validate_raw(self, raw_value):
+        """ Takes raw data and determine if this is valid for this chunk type, returns true if it is valid """
+        return True
+
+    def read_from_stream(self, stream_data):
+        self.internal_value = ""
+        for i in range(0, len(stream_data)):
+            if stream_data[i] in "\x00":
+                self.internal_value = stream_data[:i]
+                return stream_data[i+1:]
+        raise Exception("Reached end of stream, but found no null terminator")
+

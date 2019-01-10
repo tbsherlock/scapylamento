@@ -15,9 +15,9 @@ class StreamChunk(Chunk):
             raise Exception("cannot read from stream: %s, invalid for type %s" % (str(stream[0:16]), self))
 
         rawlen = self.raw2length(stream)
-        rawdata = stream[:rawlen]
-        print("rawlen  %s rawdata %s" % (rawlen, rawdata.encode('hex')))
-        self.raw2internal(rawdata)
+        raw_data = stream[:rawlen]
+        print("rawlen  %s raw_data %s" % (rawlen, raw_data.encode('hex')))
+        self.raw2internal(raw_data)
 
         return stream[rawlen:]
 
@@ -30,7 +30,7 @@ class StreamListChunk(ListChunk, StreamChunk):
     pass
 
 
-class StreamTemplateChunk(TemplateChunk, StreamChunk):
+class StreamTemplateChunk(HeterogeneousList, StreamChunk):
     pass
 
 
