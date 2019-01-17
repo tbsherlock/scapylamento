@@ -1,7 +1,7 @@
-from chunk import *
+from abstractchunk import *
 
 
-class StreamChunk(Chunk):
+class StreamChunk(AbstractChunk):
     def __init__(self, *args, **kwargs):
         super(StreamChunk, self).__init__(*args, **kwargs)
 

@@ -18,14 +18,14 @@ class Chunk(object):
     name = "unnamed"
     default = ""
 
-    def __init__(self, name=None, default=None, raw_data=None, human_value=None, internal_value=None, parent=None, *args, **kwargs):
+    def __init__(self, name=None, default=None, raw_value=None, human_value=None, internal_value=None, parent=None, *args, **kwargs):
         self.parent = parent  # Parent points back to a chunk containing this chunk, or None if it is a root chunk
         self.internal_value = self.default  # The value stored in this chunk
         if name is not None:
             self.name = name  # A string used to identify this chunk
-        if raw_data is not None:
-            assert isinstance(raw_data, bytes), "raw_data must be of type 'bytes'; %s" % type(raw_data)
-            self.internal_value = self.raw2internal(raw_data)
+        if raw_value is not None:
+            assert isinstance(raw_value, bytes), "raw_value must be of type 'bytes'; %s" % type(raw_value)
+            self.internal_value = self.raw2internal(raw_value)
         elif human_value is not None:
             assert isinstance(human_value, str), "human_value must be of type 'str'; %s" % type(human_value)
             self.internal_value = self.human2internal(human_value)
@@ -73,8 +73,6 @@ class Chunk(object):
     @property
     def raw_length(self):
         """ return the raw length (in octets) of this chunk """
-        if self.internal_value is None:
-            raise Exception("Cannot interpret raw length: internal value not set")
         return self.internal2rawlength(self.internal_value)
 
     """ These should be implemented by sub-classes """
@@ -96,23 +94,19 @@ class Chunk(object):
 
     def internal2human(self, internal_value):
         """ Convert human readable value to internal value and return it """
-        return internal_value
+        return str(internal_value)
 
     def validate_raw(self, raw_value):
         """ Takes raw data and determine if this is valid for this chunk type, returns true if it is valid """
         return True
 
     def read_from_stream(self, stream_data):
-        """ reads this chunk from a stream of data, set internal value, return any unconsumed stream """
+        """ reads this chunk from a stream of data, return internal value, and any unconsumed stream """
         chunk_len = self.raw_length
         raw_data = stream_data[:chunk_len]
-        self.internal_value = self.raw2internal(raw_data)
+        internal_value = self.raw2internal(raw_data)
         remaining_data = stream_data[chunk_len:]
-        return remaining_data
-
-    #def write_to_stream(self, stream_data):
-    #    """ reads this chunk from a stream of data, return any unconsumed stream """
-    #    return stream_data + self.raw_value
+        return internal_value, remaining_data
 
 
 class OctetStringChunk(Chunk):
@@ -176,7 +170,7 @@ class ASCIIEncodedDecimal(OctetStringChunk):
     def internal2raw(self, internal_value):
         """ internally stored as an integer, convert to utf-8 and pad with 0x30s """
         assert isinstance(internal_value, int), "raw_value must be of type 'int'; %s" % type(internal_value)
-        bstr = bytes(str(internal_value))
+        bstr = bytes(str(internal_value), 'utf-8')
         return (b"\x30" * (self.raw_length - len(bstr))) + bstr
 
     def human2internal(self, human_value):
@@ -211,12 +205,6 @@ class StaticLengthChunk(Chunk):
         return binascii.hexlify(internal_value)
 
 
-class ByteStringChunk(Chunk):
-    """ A chunk which is represented as a byte string """
-    def __init__(self, *args, **kwargs):
-        super(ByteStringChunk, self).__init__(*args, **kwargs)
-
-
 class ValuePackChunk(StaticLengthChunk):
     """ A chunk which contains a value specified by a struct format string"""
     default = 0
@@ -230,7 +218,6 @@ class ValuePackChunk(StaticLengthChunk):
         return struct.pack(self.fmt, internal_value)
 
     def raw2internal(self, raw_value):
-        #print("(%s)unpacking %s now.." % (self.name, str(raw_value[:6]).encode('hex')))
         return struct.unpack(self.fmt, raw_value[:self.raw_length])[0]
 
     def internal2rawlength(self, internal_value):
@@ -249,9 +236,19 @@ class CharChunk(ValuePackChunk):
         super(CharChunk, self).__init__(fmt="c", *args, **kwargs)
 
 
+class ShortChunk(ValuePackChunk):
+    def __init__(self, *args, **kwargs):
+        super(ShortChunk, self).__init__("h", *args, **kwargs)
+
+
 class UShortChunk(ValuePackChunk):
     def __init__(self, *args, **kwargs):
         super(UShortChunk, self).__init__("H", *args, **kwargs)
+
+
+class LongChunk(ValuePackChunk):
+    def __init__(self, *args, **kwargs):
+        super(LongChunk, self).__init__("l", *args, **kwargs)
 
 
 class ULongChunk(ValuePackChunk):
@@ -259,231 +256,12 @@ class ULongChunk(ValuePackChunk):
         super(ULongChunk, self).__init__(">L", *args, **kwargs)
 
 
-class ListChunk(Chunk):
-    """ A chunk whereby the internal value is stored as a python list """
-    default = []
-
+class FloatChunk(ValuePackChunk):
     def __init__(self, *args, **kwargs):
-        super(ListChunk, self).__init__(*args, **kwargs)
-
-    def __getitem__(self, key):
-        return self.internal_value[key]
-
-    def __getattr__(self, name):
-        """ Overload the getattr function, this allows us to access chunks in the list by name """
-        if self.internal_value is None:
-            raise Exception("(%s) getattr error, name not found: %s" % (self, name))
-        print("internal values: %s" % self.internal_value)
-        for elmnt in self.internal_value:
-            if elmnt.name == name:
-                return elmnt
-
-    def __setitem__(self, key, value):
-        self.internal_value[key] = value
-
-    def __delitem__(self, key):
-        self.internal_value.remove(key)
-
-    def raw2internal(self, raw_value):
-        raise Exception("Base implementation of ListChunk does not support raw2internal")
-
-    def internal2raw(self, internal_value):
-        """ Convert internal (python stored) value to raw (on the wire) value and return it """
-        raw_data = b""
-        for chunk in internal_value:
-            raw_data += chunk.raw_value
-        return raw_data
-
-    def internal2rawlength(self, internal_value):
-        """ Calculate the length by iterating over all of the elements of the list and  """
-        total_size = 0
-        for elmnt in internal_value:
-            total_size += elmnt.raw_length
-        return total_size
+        super(FloatChunk, self).__init__("f", *args, **kwargs)
 
     def human2internal(self, human_value):
-        raise Exception("Base implementation of ListChunk does not support human2internal")
-
-    def internal2human(self, internal_value):
-        rstr = "%s " % self.name + " [ "
-        for elmnt in internal_value:
-            rstr += elmnt.human_value + ","
-        rstr += " ]"
-        return rstr
-
-    def display_string(self, indent=""):
-        rstr = indent + "%s " % self.name + " [ "
-        for elmnt in self.internal_value:
-            rstr += "\n" + elmnt.display_string(indent + "  ") + ","
-        rstr += "  ]"
-        return rstr
-
-    '''
-    def raw2internal(self, raw_data):
-        """ Convert raw value to internal (python stored) value """
-        #if self.length_from is None:
-        #    raise Exception("Unable to parse raw list, unable to calculate length")
-        if self.element_type is None:
-            raise Exception("Unable to parse raw list, unknown list elements")
-
-        self.internal_value = []
-        chunk_type, chunk_args = self.element_type
-
-        # Calculate the number of elements in this list
-        test_chunk = chunk_type(**chunk_args)
-        list_length = self.raw2length(raw_data)  # calculate list length in bytes
-        element_len = test_chunk.raw2length(raw_data)
-        element_count = list_length / element_len
-        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
-
-        for i in range(0,element_count):
-            new_chunk = chunk_type(**chunk_args)
-            new_chunk.raw2internal(raw_data[i*element_len:(i+1)*element_len])
-            self.internal_value.append(new_chunk)
-
-    def read_from_stream(self, streamdata):
-        datalen = self.raw2length(streamdata)
-        print("reading %s bytes" % datalen)
-        self.raw2internal(streamdata[:datalen])
-        return streamdata[datalen:]
-    '''
-
-
-class StaticListChunk(ListChunk, StaticLengthChunk):
-    """ A List chunk (contains other chunks), where the List is always of a known length """
-    def __init__(self, element_type, *args, **kwargs):
-        self.element_type = element_type
-        super(StaticListChunk, self).__init__(*args, **kwargs)
-
-    def raw2internal(self, raw_data):
-        """ Convert raw value to internal (python stored) value """
-        self.internal_value = []
-        chunk_type, chunk_args = self.element_type
-
-        # Calculate the number of elements in this list
-        test_chunk = chunk_type(**chunk_args)
-        list_length = self.raw_length  # calculate list length in bytes
-        element_len = test_chunk.get_raw_length()  # calculate length of one element
-        element_count = list_length / element_len  # calculate number of elements
-        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
-
-        for i in range(0,element_count):
-            new_chunk = chunk_type(**chunk_args)
-            new_chunk.raw2internal(raw_data[i*element_len:(i+1)*element_len])
-            self.internal_value.append(new_chunk)
-
-
-class HomogeneousList(ListChunk):
-    """ A List chunk (contains other chunks), where the elements are the same type """
-    def __init__(self, element_type, element_count, *args, **kwargs):
-        self.element_type = element_type
-        self.element_count = element_count  # This should be a function that returns the number of elements
-        super(HomogeneousList, self).__init__(*args, **kwargs)
-
-    def raw2internal(self, raw_data):
-        """ Convert raw value to internal (python stored) value """
-        chunk_type, chunk_args = self.element_type
-        chunk_args['parent'] = self
-        internal_value = []
-
-        test_chunk = chunk_type(**chunk_args)
-        element_len_bytes = test_chunk.raw_length  # calculate length of one element in bytes
-
-        for elmnt in range(0, self.element_count(self)):
-            new_chunk = chunk_type(**chunk_args)
-            new_chunk.raw_value = raw_data[elmnt * element_len_bytes:(elmnt + 1) * element_len_bytes]
-            internal_value.append(new_chunk)
-
-        return internal_value
-
-        """
-        ####  This code is from a scenario where we do not know the number of elements.
-        self.internal_value = []
-        chunk_type, chunk_args = self.element_type
-
-        # Calculate the number of elements in this list
-        test_chunk = chunk_type(**chunk_args)
-        list_length = self.internal2length(self.internal_value)  # calculate list length in bytes
-        element_len = test_chunk.get_raw_length()  # calculate length of one element
-        element_count = list_length / element_len  # calculate number of elements
-        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
-
-        for i in range(0, element_count):
-            new_chunk = chunk_type(**chunk_args)
-            new_chunk.raw2internal(raw_data[i * element_len:(i + 1) * element_len])
-            self.internal_value.append(new_chunk)
-        """
-
-    def read_from_stream(self, stream_data):
-        chunk_type, chunk_args = self.element_type
-        self.internal_value = []
-
-        test_chunk = chunk_type(**chunk_args)
-        element_len = test_chunk.raw_length  # calculate length of one element
-        list_length = self.internal2rawlength(self.internal_value)  # calculate list length in bytes
-        remaining_data = stream_data
-
-        print("element count was: %s" % self.element_count(self))
-        for elmnt in range(0, self.element_count(self)):
-            new_chunk = chunk_type(**chunk_args)
-            self.internal_value.append(new_chunk)
-            remaining_data = new_chunk.read_from_stream(remaining_data)
-            print("done appended new chunk: %s" % new_chunk)
-
-        return remaining_data
-
-#class StaticTemplateChunk(TemplateChunk, StaticLengthChunk)
-#    """ A List chunk (contains other chunks), where the List is always of a known length """
-#    pass
-
-
-#class VarListChunk(ListChunk, VariableLengthChunk):
-#    """ A List chunk (contains other chunks), where the length is calculated from another field """
-#    def __init__(self, *args, **kwargs):
-#        super(VarListChunk, self).__init__(*args, **kwargs)
-
-
-class HeterogeneousList(ListChunk):
-    """ A chunk which contains a known ordered list of other chunks, the known list of chunks is specified in the template member
-    This should contain a list of 2-tuples, of which the first element is a chunk type, and the second element is a dictionary containing arguments to that chunk"""
-    template = []
-
-    def __init__(self, *args, **kwargs):
-        super(HeterogeneousList, self).__init__(*args, **kwargs)
-
-    def raw2internal(self, raw_value):
-        self.internal_value = []
-        rawval_remaining = raw_value
-
-        for chunk_type, chunk_args in self.template:
-            chunk_args['parent'] = self
-            #chunk_args['raw_data'] = rawval_remaining[:]
-            try:
-                new_chunk = chunk_type(**chunk_args)
-                self.internal_value.append(new_chunk)
-                rawval_remaining = new_chunk.read_from_stream(rawval_remaining)
-            except Exception as e:
-                print("Failed to initialise a component of templateChunk")
-                print("chunk_type: %s chunk_args: %s" % (chunk_type, chunk_args))
-                raise
-
-    def read_from_stream(self, stream_data):
-        rawval_remaining = stream_data
-        self.internal_value = []
-
-        for chunk_type, chunk_args in self.template:
-            chunk_args['parent'] = self
-            #chunk_args['raw_data'] = rawval_remaining[:]
-            try:
-                new_chunk = chunk_type(**chunk_args)
-                self.internal_value.append(new_chunk)
-                rawval_remaining = new_chunk.read_from_stream(rawval_remaining)
-            except Exception as e:
-                print("Failed to initialise a component of templateChunk")
-                print("chunk_type: %s chunk_args: %s"%(chunk_type, chunk_args))
-                raise
-
-        return rawval_remaining
+        return float(human_value)
 
 
 class EnumDataChunk(OctetStringChunk):
@@ -573,7 +351,8 @@ class CStringChunk(Chunk):
 
     def __init__(self, *args, **kwargs):
         super(CStringChunk, self).__init__(*args, **kwargs)
-        self.read_from_stream(kwargs['raw_data'])
+        internal_value, remaining_data = self.read_from_stream(kwargs['raw_value'])
+        self.internal_value = internal_value
 
     #def internal2rawlength(self, internal_value):
     #    """ The length of the string + the 1 byte null terminator """
@@ -604,10 +383,282 @@ class CStringChunk(Chunk):
         return True
 
     def read_from_stream(self, stream_data):
-        self.internal_value = ""
         for i in range(0, len(stream_data)):
-            if stream_data[i] in "\x00":
-                self.internal_value = stream_data[:i]
-                return stream_data[i+1:]
+            if stream_data[i] in b"\x00":
+                internal_value = stream_data[:i]
+                remaining_data = stream_data[i+1:]
+                return internal_value, remaining_data
+
         raise Exception("Reached end of stream, but found no null terminator")
 
+
+class DictChunk(Chunk):
+    """ A chunk whereby the internal value is stored as a python list """
+    default = {}
+
+    def __init__(self, *args, **kwargs):
+        super(DictChunk, self).__init__(*args, **kwargs)
+
+    def __getitem__(self, key):
+        return self.internal_value[key]
+
+    def __getattr__(self, name):
+        """ Overload the getattr function, this allows us to access chunks in the list by name """
+        return self.internal_value[name]
+
+    def __setitem__(self, key, value):
+        self.internal_value[key] = value
+
+    def __delitem__(self, key):
+        self.internal_value.remove(key)
+
+    def raw2internal(self, raw_value):
+        raise Exception("Base implementation of ListChunk does not support raw2internal")
+
+    def internal2raw(self, internal_value):
+        """ Convert internal (python stored) value to raw (on the wire) value and return it """
+        raw_data = b""
+        for chunk in internal_value:
+            raw_data += chunk.raw_value
+        return raw_data
+
+    def internal2rawlength(self, internal_value):
+        """ Calculate the length by iterating over all of the elements of the list and  """
+        total_size = 0
+        for elmnt in internal_value:
+            total_size += elmnt.raw_length
+        return total_size
+
+    def human2internal(self, human_value):
+        raise Exception("Base implementation of ListChunk does not support human2internal")
+
+    def internal2human(self, internal_value):
+        rstr = "%s " % self.name + " { "
+        for elmnt in internal_value.keys():
+            rstr += elmnt + self.internal_value[elmnt].human_value + ","
+        rstr += " ]"
+        return rstr
+
+    def display_string(self, indent=""):
+        rstr = indent + "%s " % self.name + " [ "
+        for elmnt in self.internal_value:
+            rstr += "\n" + elmnt.display_string(indent + "  ") + ","
+        rstr += "  ]"
+        return rstr
+
+
+class ListChunk(Chunk):
+    """ A chunk whereby the internal value is stored as a python list """
+    default = []
+
+    def __init__(self, *args, **kwargs):
+        super(ListChunk, self).__init__(*args, **kwargs)
+
+    def raw2internal(self, raw_value):
+        raise Exception("Base implementation of ListChunk does not support raw2internal")
+
+    def internal2raw(self, internal_value):
+        """ Convert internal (python stored) value to raw (on the wire) value and return it """
+        assert isinstance(internal_value, list), "Internal value of ListChunk must be type 'list'; %s" % type(internal_value)
+        rstr = b""
+        for chunk in internal_value:
+            rstr += chunk.raw_value
+        return rstr
+
+    def internal2rawlength(self, internal_value):
+        """ Calculate the length by iterating over all of the elements of the list and calculating their length """
+        assert isinstance(internal_value, list), "Internal value of ListChunk must be type 'list'; %s" % type(internal_value)
+        total_size = 0
+        for chunk in internal_value:
+            total_size += chunk.raw_length
+        return total_size
+
+    def human2internal(self, human_value):
+        """ This is not implemented here because the format of the element is not defined. """
+        raise Exception("Base implementation of ListChunk does not support human2internal")
+
+    def internal2human(self, internal_value):
+        """ A basic implimentation is defined here, this is probably not sufficient for general use """
+        rstr = "%s " % self.name + "["
+        for elmnt in internal_value:
+            rstr += elmnt.human_value + ","
+        rstr += "]"
+        return rstr
+
+    def display_string(self, indent=""):
+        rstr = indent + "%s " % self.name + " [ "
+        sep = ""
+        for elmnt in self.internal_value:
+            rstr += "\n" + elmnt.display_string(indent + "  ") + sep
+            sep = ","
+        rstr += " ]"
+        return rstr
+
+    '''
+    def raw2internal(self, raw_data):
+        """ Convert raw value to internal (python stored) value """
+        #if self.length_from is None:
+        #    raise Exception("Unable to parse raw list, unable to calculate length")
+        if self.element_type is None:
+            raise Exception("Unable to parse raw list, unknown list elements")
+
+        self.internal_value = []
+        chunk_type, chunk_args = self.element_type
+
+        # Calculate the number of elements in this list
+        test_chunk = chunk_type(**chunk_args)
+        list_length = self.raw2length(raw_data)  # calculate list length in bytes
+        element_len = test_chunk.raw2length(raw_data)
+        element_count = list_length / element_len
+        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
+
+        for i in range(0,element_count):
+            new_chunk = chunk_type(**chunk_args)
+            new_chunk.raw2internal(raw_data[i*element_len:(i+1)*element_len])
+            self.internal_value.append(new_chunk)
+
+    def read_from_stream(self, streamdata):
+        datalen = self.raw2length(streamdata)
+        print("reading %s bytes" % datalen)
+        self.raw2internal(streamdata[:datalen])
+        return streamdata[datalen:]
+    '''
+
+
+class StaticListChunk(ListChunk, StaticLengthChunk):
+    """ A List chunk (contains other chunks), where the List is always of a known length """
+    def __init__(self, element_type, *args, **kwargs):
+        self.element_type = element_type
+        super(StaticListChunk, self).__init__(*args, **kwargs)
+
+    def raw2internal(self, raw_data):
+        """ Convert raw value to internal (python stored) value """
+        self.internal_value = []
+        chunk_type, chunk_args = self.element_type
+
+        # Calculate the number of elements in this list
+        test_chunk = chunk_type(**chunk_args)
+        list_length = self.raw_length  # calculate list length in bytes
+        element_len = test_chunk.get_raw_length()  # calculate length of one element
+        element_count = list_length / element_len  # calculate number of elements
+        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
+
+        for i in range(0, element_count):
+            new_chunk = chunk_type(**chunk_args)
+            new_chunk.raw2internal(raw_data[i*element_len:(i+1)*element_len])
+            self.internal_value.append(new_chunk)
+
+
+class HomogeneousList(ListChunk):
+    """ A List chunk (contains other chunks), where the elements are the same type """
+    def __init__(self, element_type, element_count, *args, **kwargs):
+        self.element_type = element_type
+        self.element_count = element_count  # This should be a function that returns the number of elements
+        super(HomogeneousList, self).__init__(*args, **kwargs)
+
+    def raw2internal(self, raw_data):
+        """ Convert raw value to internal (python stored) value """
+        chunk_type, chunk_args = self.element_type
+        chunk_args['parent'] = self
+        internal_value = []
+
+        test_chunk = chunk_type(**chunk_args)
+        element_len_bytes = test_chunk.raw_length  # calculate length of one element in bytes
+
+        for elmnt in range(0, self.element_count(self)):
+            new_chunk = chunk_type(**chunk_args)
+            new_chunk.raw_value = raw_data[elmnt * element_len_bytes:(elmnt + 1) * element_len_bytes]
+            internal_value.append(new_chunk)
+
+        return internal_value
+
+        """
+        ####  This code is from a scenario where we do not know the number of elements.
+        self.internal_value = []
+        chunk_type, chunk_args = self.element_type
+
+        # Calculate the number of elements in this list
+        test_chunk = chunk_type(**chunk_args)
+        list_length = self.internal2length(self.internal_value)  # calculate list length in bytes
+        element_len = test_chunk.get_raw_length()  # calculate length of one element
+        element_count = list_length / element_len  # calculate number of elements
+        print("(%s) Unpacking a %s element list .." % (self.name, element_count))
+
+        for i in range(0, element_count):
+            new_chunk = chunk_type(**chunk_args)
+            new_chunk.raw2internal(raw_data[i * element_len:(i + 1) * element_len])
+            self.internal_value.append(new_chunk)
+        """
+
+    def read_from_stream(self, stream_data):
+        chunk_type, chunk_args = self.element_type
+        internal_value = []
+
+        test_chunk = chunk_type(**chunk_args)
+        element_len = test_chunk.raw_length  # calculate length of one element
+        list_length = self.internal2rawlength(self.internal_value)  # calculate list length in bytes
+        remaining_data = stream_data
+
+        print("element count was: %s" % self.element_count(self))
+        for elmnt in range(0, self.element_count(self)):
+            new_chunk = chunk_type(**chunk_args)
+            internal_value.append(new_chunk)
+            remaining_data = new_chunk.read_from_stream(remaining_data)
+            print("done appended new chunk: %s" % new_chunk)
+
+        return internal_value, remaining_data
+
+#class StaticTemplateChunk(TemplateChunk, StaticLengthChunk)
+#    """ A List chunk (contains other chunks), where the List is always of a known length """
+#    pass
+
+
+#class VarListChunk(ListChunk, VariableLengthChunk):
+#    """ A List chunk (contains other chunks), where the length is calculated from another field """
+#    def __init__(self, *args, **kwargs):
+#        super(VarListChunk, self).__init__(*args, **kwargs)
+
+
+class HeterogeneousList(ListChunk):
+    """ A chunk which contains a known ordered list of other chunks, the known list of chunks is specified in the template member
+    This should contain a list of 2-tuples, of which the first element is a chunk type, and the second element is a dictionary containing arguments to that chunk"""
+    template = []
+
+    def __init__(self, *args, **kwargs):
+        super(HeterogeneousList, self).__init__(*args, **kwargs)
+
+    def raw2internal(self, raw_value):
+        self.internal_value = []
+        rawval_remaining = raw_value
+
+        for chunk_type, chunk_args in self.template:
+            chunk_args['parent'] = self
+            #chunk_args['raw_data'] = rawval_remaining[:]
+            try:
+                new_chunk = chunk_type(**chunk_args)
+                self.internal_value.append(new_chunk)
+                internal_value, rawval_remaining = new_chunk.read_from_stream(rawval_remaining)
+                new_chunk.internal_value = internal_value
+            except Exception as e:
+                print("Failed to initialise a component of templateChunk")
+                print("chunk_type: %s chunk_args: %s" % (chunk_type, chunk_args))
+                raise
+
+    def read_from_stream(self, stream_data):
+        rawval_remaining = stream_data
+        self.internal_value = []
+
+        for chunk_type, chunk_args in self.template:
+            chunk_args['parent'] = self
+            #chunk_args['raw_data'] = rawval_remaining[:]
+            try:
+                new_chunk = chunk_type(**chunk_args)
+                self.internal_value.append(new_chunk)
+                internal_value, rawval_remaining = new_chunk.read_from_stream(rawval_remaining)
+                new_chunk.internal_value = internal_value
+            except Exception as e:
+                print("Failed to initialise a component of templateChunk")
+                print("chunk_type: %s chunk_args: %s"%(chunk_type, chunk_args))
+                raise
+
+        return rawval_remaining
