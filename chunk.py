@@ -48,7 +48,7 @@ class Chunk(object):
     def human_value(self):
         """ Return this chunk as its human readable value """
         if self.internal_value is None:
-            raise Exception("Cannot interpret as human: internal value not set")
+            raise Exception("Cannot interpret as human: internal value not set", self)
         return self.internal2human(self.internal_value)
 
     @human_value.setter
@@ -487,10 +487,8 @@ class ListChunk(Chunk):
 
     def display_string(self, indent=""):
         rstr = indent + "%s " % self.name + " [ "
-        sep = ""
         for elmnt in self.internal_value:
-            rstr += "\n" + elmnt.display_string(indent + "  ") + sep
-            sep = ","
+            rstr += "\n" + elmnt.display_string(indent + "  ") + ","
         rstr += " ]"
         return rstr
 
@@ -607,6 +605,7 @@ class HomogeneousList(ListChunk):
             print("done appended new chunk: %s" % new_chunk)
 
         return internal_value, remaining_data
+
 
 #class StaticTemplateChunk(TemplateChunk, StaticLengthChunk)
 #    """ A List chunk (contains other chunks), where the List is always of a known length """
