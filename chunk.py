@@ -1,7 +1,5 @@
 import struct
-import copy
 import binascii
-import os
 from helper import hexdump
 
 
@@ -46,14 +44,14 @@ class Chunk(object):
 
     @property
     def human_value(self):
-        """ Return this chunk as its human readable value """
+        """ Return this chunk as its human-readable value """
         if self.internal_value is None:
             raise Exception("Cannot interpret as human: internal value not set", self)
         return self.internal2human(self.internal_value)
 
     @human_value.setter
     def human_value(self, human_value):
-        """ Set the chunk by its human readable value """
+        """ Set the chunk by its human-readable value """
         assert isinstance(human_value, str), "human_value must be instance of 'str'; %s" % type(human_value)
         self.internal_value = self.human2internal(human_value)
 
@@ -93,7 +91,7 @@ class Chunk(object):
         return human_value
 
     def internal2human(self, internal_value):
-        """ Convert human readable value to internal value and return it """
+        """ Convert human-readable value to internal value and return it """
         return str(internal_value)
 
     def validate_raw(self, raw_value):
@@ -179,7 +177,7 @@ class ASCIIEncodedDecimal(OctetStringChunk):
         return int(human_value)
 
     def internal2human(self, internal_value):
-        """ Convert human readable value to internal value and return it """
+        """ Convert human-readable value to internal value and return it """
         return str(internal_value)
 
     def internal2rawlength(self, internal_value):
@@ -267,7 +265,7 @@ class FloatChunk(ValuePackChunk):
 class EnumDataChunk(OctetStringChunk):
     """ This chunk must be from a subset of values.
         acceptable values must be defined in a dictionary, where the key is the
-        field and value is a human readable string """
+        field and value is a human-readable string """
     def __init__(self, enum, *args, **kwargs):
         super(EnumDataChunk, self).__init__(*args, **kwargs)
         self.enum = enum

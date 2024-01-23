@@ -1,4 +1,3 @@
-
 from chunk import HeterogeneousList, EnumPackChunk, ValuePackChunk, ListChunk, BinaryDataChunk
 from dissectors.inet.inet import IPPackChunk
 
@@ -6,7 +5,6 @@ BOOTP_OP_ENUM = {
     1: "BOOTREQUEST",
     2: "BOOTREPLY"
 }
-
 
 DHCPTypes = {
     1: "discover",
@@ -131,6 +129,6 @@ class BOOTP(HeterogeneousList):
                 (BinaryDataChunk, {"name": "file", "default": "", "length": 128}),
                 (BinaryDataChunk, {"name": "magic_cookie", "default": "", "length": 4}),
                 (BOOTP_OptionList, {"name": "options",
-                             "length_from": lambda x: 48}) ] # TODO: How to calculate this?
+                             "length_from": lambda x: 48})]  # TODO: How to calculate this?
 
 

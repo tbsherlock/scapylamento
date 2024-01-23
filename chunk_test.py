@@ -337,7 +337,7 @@ class TestChunkTypes(unittest.TestCase):
         enum = {
             b"aaaaaaaa": "test_value_a",
             b"bbbbbbbb": "test_value_b",
-            b"bbbbbbbb": "test_value_c",
+            b"cccccccc": "test_value_c",
         }
         test_raw_value = b'bbbbbbbb'
         test_human_value = "test_value_b"
