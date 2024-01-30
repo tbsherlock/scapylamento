@@ -8,11 +8,18 @@ class NULL(object):
     pass
 
 
-class Chunk(object):
-    """ A chunk of data stuff,
-     raw - this is how the chunk is transmitted or stored in its raw form; must be a byte string
-     internal - How the data should be stored in its python representation
-     human - How this chunk should be displayed for human interaction; must be a string """
+class AbstractChunk(object):
+    """ A chunk of data, each chunk has three different representations
+    raw - How the chunk is transmitted or stored in its raw form; must be a byte string
+    internal - How the chunk is stored in its python representation
+    human - How the chunk is displayed for humans; must be a string
+    """
+    raw_value = b''
+    internal_value = ''
+    human_value = ''
+
+
+class Chunk(AbstractChunk):
     name = "unnamed"
     default = ""
 
@@ -68,10 +75,10 @@ class Chunk(object):
         assert isinstance(raw_value, bytes), "raw_value must be instance of 'bytes'; %s" % type(raw_value)
         self.internal_value = self.raw2internal(raw_value)
 
-    @property
-    def raw_length(self):
-        """ return the raw length (in octets) of this chunk """
-        return self.internal2rawlength(self.internal_value)
+    #@property
+    #def raw_length(self):
+    #    """ return the raw length (in octets) of this chunk """
+    #    return self.internal2rawlength(self.internal_value)
 
     """ These should be implemented by sub-classes """
     def raw2internal(self, raw_value):
@@ -108,10 +115,11 @@ class Chunk(object):
 
 
 class OctetStringChunk(Chunk):
-    """ An Octet string is a series of  Chunk which is always the same length in raw form """
-    def __init__(self, *args, **kwargs):
+    """ An Octet string is a series of Chunk which is always the same length in raw form """
+    def __init__(self, raw_length, *args, **kwargs):
         """ raw_length is the length in octets of the raw data chunk """
         super(OctetStringChunk, self).__init__(*args, **kwargs)
+        self.raw_length = raw_length
 
     def display_string(self, indent=""):
         rstr = ""
@@ -145,10 +153,10 @@ class OctetStringChunk(Chunk):
         """ human value is a hex character string, convert it to a byte string for internal """
         return binascii.unhexlify(human_value)
 
-    @property
-    def raw_length(self):
-        """ return the raw length (in octets) of this chunk """
-        return self.internal2rawlength(self.internal_value)
+    #@property
+    #def raw_length(self):
+    #    """ return the raw length (in octets) of this chunk """
+    #    return self.internal2rawlength(self.internal_value)
 
 
 class ASCIIEncodedDecimal(OctetStringChunk):
@@ -617,8 +625,9 @@ class HomogeneousList(ListChunk):
 
 
 class HeterogeneousList(ListChunk):
-    """ A chunk which contains a known ordered list of other chunks, the known list of chunks is specified in the template member
-    This should contain a list of 2-tuples, of which the first element is a chunk type, and the second element is a dictionary containing arguments to that chunk"""
+    """ A chunk which contains a known ordered list of other chunks, the known list of chunks is specified in the
+    template member. This should contain a list of 2-tuples, of which the first element is a chunk type, and the second
+    element is a dictionary containing arguments to that chunk """
     template = []
 
     def __init__(self, *args, **kwargs):

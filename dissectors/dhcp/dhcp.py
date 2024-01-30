@@ -1,5 +1,9 @@
-from chunk import HeterogeneousList, EnumPackChunk, ValuePackChunk, ListChunk, BinaryDataChunk
+from chunk import HeterogeneousList, EnumPackChunk, ValuePackChunk, ListChunk, OctetStringChunk
 from dissectors.inet.inet import IPPackChunk
+
+""" BOOTSTRAP PROTOCOL (BOOTP) RFC 951 
+    https://datatracker.ietf.org/doc/html/rfc951 """
+
 
 BOOTP_OP_ENUM = {
     1: "BOOTREQUEST",
@@ -86,7 +90,7 @@ class BOOTP_Option(HeterogeneousList):
                 (ValuePackChunk, {"name": "option_length",
                                   "fmt": "B",
                                   "conditional_fn": lambda x: x.parent.option_type.value != 0xff}),
-                (BinaryDataChunk, {"name": "option_data",
+                (OctetStringChunk, {"name": "option_data",
                                    "length_from": lambda x: x.parent.option_length.value,
                                    "conditional_fn": lambda x: x.parent.option_type.value != 0xff})]
 
@@ -123,12 +127,12 @@ class BOOTP(HeterogeneousList):
                 (IPPackChunk, {"name": "yiaddr", "default": "0.0.0.0"}),
                 (IPPackChunk, {"name": "siaddr", "default": "0.0.0.0"}),
                 (IPPackChunk, {"name": "giaddr", "default": "0.0.0.0"}),
-                (BinaryDataChunk, {"name": "chaddr", "default": "", "length": 6}),
-                (BinaryDataChunk, {"name": "chpad", "default": "", "length": 10}),
-                (BinaryDataChunk, {"name": "sname", "default": "", "length": 64}),
-                (BinaryDataChunk, {"name": "file", "default": "", "length": 128}),
-                (BinaryDataChunk, {"name": "magic_cookie", "default": "", "length": 4}),
-                (BOOTP_OptionList, {"name": "options",
-                             "length_from": lambda x: 48})]  # TODO: How to calculate this?
+                (OctetStringChunk, {"name": "chaddr", "raw_length": 6}),
+                (OctetStringChunk, {"name": "chpad", "raw_length": 10}),
+                (OctetStringChunk, {"name": "sname", "raw_length": 64}),
+                (OctetStringChunk, {"name": "file", "raw_length": 128}),
+                (OctetStringChunk, {"name": "magic_cookie", "raw_length": 4})]
+                #(BOOTP_OptionList, {"name": "options",
+                #             "length_from": lambda x: 48})]  # TODO: How to calculate this?
 
 

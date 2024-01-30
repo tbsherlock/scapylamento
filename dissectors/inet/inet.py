@@ -24,7 +24,7 @@ class IPPackChunk(ValuePackChunk):
         return socket.inet_aton(self.value)
 
     def raw2internal(self, raw_value):
-        print("ipchunk rawval: %s" % (raw_value.encode('hex')))
+        print("ipchunk rawval: %s" % (raw_value.hex()))
         return socket.inet_ntoa(raw_value)
 
     def internal2human(self):
