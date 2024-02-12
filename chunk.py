@@ -1,5 +1,6 @@
 import struct
 import binascii
+from parser import TemplateStreamParser
 from helper import hexdump
 
 
@@ -15,6 +16,7 @@ class AbstractChunk(object):
     human - How the chunk is displayed for humans; must be a string
     """
     raw_value = b''
+    raw_length = 0
     internal_value = ''
     human_value = ''
 
@@ -115,7 +117,7 @@ class Chunk(AbstractChunk):
 
 
 class OctetStringChunk(Chunk):
-    """ An Octet string is a series of Chunk which is always the same length in raw form """
+    """ An Octet string contains binary data of a pre determined length in raw form """
     def __init__(self, raw_length, *args, **kwargs):
         """ raw_length is the length in octets of the raw data chunk """
         super(OctetStringChunk, self).__init__(*args, **kwargs)
@@ -635,36 +637,6 @@ class HeterogeneousList(ListChunk):
 
     def raw2internal(self, raw_value):
         self.internal_value = []
-        rawval_remaining = raw_value
 
-        for chunk_type, chunk_args in self.template:
-            chunk_args['parent'] = self
-            #chunk_args['raw_data'] = rawval_remaining[:]
-            try:
-                new_chunk = chunk_type(**chunk_args)
-                self.internal_value.append(new_chunk)
-                internal_value, rawval_remaining = new_chunk.read_from_stream(rawval_remaining)
-                new_chunk.internal_value = internal_value
-            except Exception as e:
-                print("Failed to initialise a component of templateChunk")
-                print("chunk_type: %s chunk_args: %s" % (chunk_type, chunk_args))
-                raise
-
-    def read_from_stream(self, stream_data):
-        rawval_remaining = stream_data
-        self.internal_value = []
-
-        for chunk_type, chunk_args in self.template:
-            chunk_args['parent'] = self
-            #chunk_args['raw_data'] = rawval_remaining[:]
-            try:
-                new_chunk = chunk_type(**chunk_args)
-                self.internal_value.append(new_chunk)
-                internal_value, rawval_remaining = new_chunk.read_from_stream(rawval_remaining)
-                new_chunk.internal_value = internal_value
-            except Exception as e:
-                print("Failed to initialise a component of templateChunk")
-                print("chunk_type: %s chunk_args: %s"%(chunk_type, chunk_args))
-                raise
-
-        return rawval_remaining
+        parser = TemplateStreamParser(self.template)
+        self.internal_value = parser.parse_stream(raw_value)
